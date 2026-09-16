@@ -1,23 +1,7 @@
-import { StructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
+import { KudosityTool, type KudosityToolFields } from "./base.js";
 
-const PACKAGE_VERSION = "0.1.0";
-
-export interface KudositySendSmsFields {
-  /**
-   * Kudosity V2 API key (`x-api-key`). Falls back to the
-   * `KUDOSITY_API_KEY` environment variable.
-   */
-  apiKey?: string;
-  /**
-   * Default sender: a virtual number assigned to your account, or an
-   * alphanumeric sender ID (max 11 chars). When set, the model does not
-   * have to supply one per send.
-   */
-  defaultSender?: string;
-  /** Override the API base URL. Defaults to Kudosity production. */
-  baseUrl?: string;
-}
+export type KudositySendSmsFields = KudosityToolFields;
 
 /** Flat response returned by POST /v2/sms (no `data` envelope). */
 export interface KudositySmsResponse {
@@ -66,7 +50,7 @@ const schema = z.object({
  * const agent = createAgent({ model, tools: [sms] });
  * ```
  */
-export class KudositySendSms extends StructuredTool<typeof schema> {
+export class KudositySendSms extends KudosityTool<typeof schema> {
   static lc_name() {
     return "KudositySendSms";
   }
@@ -80,70 +64,19 @@ export class KudositySendSms extends StructuredTool<typeof schema> {
 
   schema = schema;
 
-  protected apiKey: string;
-
-  protected defaultSender?: string;
-
-  protected baseUrl: string;
-
-  constructor(fields: KudositySendSmsFields = {}) {
-    super();
-    const apiKey =
-      fields.apiKey ??
-      (typeof process !== "undefined"
-        ? process.env?.KUDOSITY_API_KEY
-        : undefined);
-    if (!apiKey) {
-      throw new Error(
-        "Kudosity API key not found. Pass `apiKey` or set the KUDOSITY_API_KEY environment variable (Kudosity dashboard → Developers → API Settings)."
-      );
-    }
-    this.apiKey = apiKey;
-    this.defaultSender = fields.defaultSender;
-    this.baseUrl = fields.baseUrl ?? "https://api.transmitmessage.com";
-  }
-
   protected async _call(input: z.infer<typeof schema>): Promise<string> {
     const sender = input.sender ?? this.defaultSender;
-    if (!sender) {
-      return JSON.stringify({
-        error:
-          "No sender provided. Supply `sender` in the tool input, or configure `defaultSender` on the tool.",
-      });
-    }
+    if (!sender) return this.missingSenderError("sender");
 
-    const res = await fetch(`${this.baseUrl}/v2/sms`, {
-      method: "POST",
-      headers: {
-        "x-api-key": this.apiKey,
-        "Content-Type": "application/json",
-        "User-Agent": `langchain-kudosity/${PACKAGE_VERSION}`,
-      },
-      body: JSON.stringify({
-        recipient: input.recipient,
-        message: input.message,
-        sender,
-        ...(input.message_ref ? { message_ref: input.message_ref } : {}),
-      }),
+    const res = await this.post("/v2/sms", {
+      recipient: input.recipient,
+      message: input.message,
+      sender,
+      ...(input.message_ref ? { message_ref: input.message_ref } : {}),
     });
+    if (!res.ok) return JSON.stringify(res.error);
 
-    const body = (await res.json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
-
-    if (!res.ok) {
-      // Kudosity errors follow RFC 9457 Problem Details under an `error` key;
-      // `error.issues[]` lists every failed field at once.
-      return JSON.stringify({
-        error: `Kudosity API error (HTTP ${res.status})`,
-        detail: body.error ?? body,
-      });
-    }
-
-    // The SMS response is flat (some other V2 endpoints wrap in `data`).
-    const sms = ((body as { data?: unknown }).data ??
-      body) as KudositySmsResponse;
+    const sms = res.body as unknown as KudositySmsResponse;
     return JSON.stringify({
       id: sms.id,
       status: sms.status,

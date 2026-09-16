@@ -1,6 +1,12 @@
 # langchain-kudosity
 
-LangChain.js tool for [Kudosity](https://kudosity.com) — let AI agents send SMS through the Kudosity messaging platform.
+LangChain.js tools for [Kudosity](https://kudosity.com) — let AI agents send **SMS, MMS and RCS** through the Kudosity messaging platform.
+
+| Tool | Channel | Endpoint |
+|---|---|---|
+| `KudositySendSms` | SMS | `POST /v2/sms` |
+| `KudositySendMms` | MMS — image/GIF/video/audio by public URL | `POST /v2/mms` |
+| `KudositySendRcs` | RCS — rich, branded messaging with SMS fallback | `POST /v2/rcs/messages` |
 
 ```bash
 npm install langchain-kudosity @langchain/core
@@ -32,14 +38,31 @@ const result = await sendSms.invoke({
 // → {"id":"2d2c8fb6-…","status":"queued","recipient":"61491570156",…}
 ```
 
-Or hand it to an agent:
+MMS and RCS work the same way:
+
+```ts
+import { KudositySendMms, KudositySendRcs } from "langchain-kudosity";
+
+const sendMms = new KudositySendMms({ defaultSender: "61481074185" });
+
+const sendRcs = new KudositySendRcs({
+  defaultSender: "YourAgentId", // a registered RCS agent ID, not a phone number
+  defaultFallbackSender: "61481074185", // used when the model adds an SMS fallback
+});
+```
+
+> **RCS note:** the RCS `sender` is a **registered RCS agent ID** provisioned by
+> Kudosity — talk to your Kudosity contact to get one. The tool prompts the model to
+> include `sms_fallback_message` so non-RCS handsets still get the message as SMS.
+
+Or hand them to an agent:
 
 ```ts
 import { createAgent } from "langchain";
 
 const agent = createAgent({
   model: "anthropic:claude-sonnet-5",
-  tools: [sendSms],
+  tools: [sendSms, sendMms, sendRcs],
 });
 
 await agent.invoke({

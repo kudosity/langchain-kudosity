@@ -1,7 +1,7 @@
 {
   "name": "langchain-kudosity",
   "version": "0.1.0",
-  "description": "LangChain.js tool for Kudosity — let AI agents send SMS through the Kudosity messaging platform.",
+  "description": "LangChain.js tools for Kudosity — let AI agents send SMS, MMS and RCS through the Kudosity messaging platform.",
   "license": "MIT",
   "author": "Kudosity",
   "repository": {
