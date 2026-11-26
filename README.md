@@ -6,7 +6,7 @@ LangChain.js tools for [Kudosity](https://kudosity.com) — let AI agents send *
 |---|---|---|
 | `KudositySendSms` | SMS | `POST /v2/sms` |
 | `KudositySendMms` | MMS — image/GIF/video/audio by public URL | `POST /v2/mms` |
-| `KudositySendRcs` | RCS — rich, branded messaging with SMS fallback | `POST /v2/rcs/messages` |
+| `KudositySendRcs` | RCS — text, media, rich cards and carousels, with suggested replies, buttons and SMS fallback | `POST /v2/rcs/messages` |
 
 ```bash
 npm install langchain-kudosity @langchain/core
@@ -46,14 +46,10 @@ import { KudositySendMms, KudositySendRcs } from "langchain-kudosity";
 const sendMms = new KudositySendMms({ defaultSender: "61481074185" });
 
 const sendRcs = new KudositySendRcs({
-  defaultSender: "YourAgentId", // a registered RCS agent ID, not a phone number
-  defaultFallbackSender: "61481074185", // used when the model adds an SMS fallback
+  defaultSender: "YourAgentId", // your RCS agent ID, not a phone number
+  defaultFallbackSender: "61481074185", // the SMS sender for the fallback; without it, no fallback is sent
 });
 ```
-
-> **RCS note:** the RCS `sender` is a **registered RCS agent ID** provisioned by
-> Kudosity — talk to your Kudosity contact to get one. The tool prompts the model to
-> include `sms_fallback_message` so non-RCS handsets still get the message as SMS.
 
 Or hand them to an agent:
 
@@ -81,9 +77,10 @@ await agent.invoke({
 |---|---|---|
 | `apiKey` | `KUDOSITY_API_KEY` env var | Kudosity V2 API key (`x-api-key`) |
 | `defaultSender` | — | Used when the model doesn't supply a `sender`; without either, the tool returns an error message |
+| `defaultFallbackSender` | — | `KudositySendRcs` only: the SMS sender for the fallback. Without it, no fallback SMS is sent |
 | `baseUrl` | `https://api.transmitmessage.com` | Override for testing |
 
-### Tool input schema
+### SMS tool input
 
 | Field | Type | Notes |
 |---|---|---|
@@ -93,6 +90,53 @@ await agent.invoke({
 | `message_ref` | string, optional | Echoed in delivery webhooks — set it to something you can join on |
 
 The tool returns JSON with the message `id` — match it against [delivery webhooks](https://developers.kudosity.com/) (`SMS_STATUS`, `SMS_INBOUND`) for delivery receipts and replies.
+
+## RCS
+
+`KudositySendRcs` sends text, an image or video, a rich card, or a carousel. Set exactly one of `message`, `media_url` or `cards`:
+
+```ts
+await sendRcs.invoke({
+  recipient: "61491570156",
+  cards: [
+    {
+      title: "Your order is out for delivery",
+      description: "Order 12345 arrives today between 2pm and 4pm.",
+      media_url: "https://example.com/images/van.jpg",
+      suggestions: [
+        { type: "open_url", text: "Track order", url: "https://example.com/track/12345" },
+      ],
+    },
+  ],
+  suggestions: [
+    { type: "reply", text: "Reschedule", postback_data: "order-12345:reschedule" },
+  ],
+  sms_fallback_message:
+    "Your order 12345 arrives today 2-4pm. Track: https://example.com/track/12345",
+  message_ref: "order-12345",
+});
+```
+
+| Field | Notes |
+|---|---|
+| `recipient` | E.164 international format, such as `61491570156`. Local format is rejected. |
+| `message` | A text message, up to 3072 characters |
+| `media_url` | One image or video on its own, by public `https` URL |
+| `cards` | 1 card sends a rich card; 2 to 10 send a carousel. Each card takes `title`, `description`, `media_url` and up to 4 `suggestions` |
+| `suggestions` | Up to 11 chips under the message. Each is a `reply`, an `open_url` or a `dial`, with an optional `postback_data` |
+| `sms_fallback_message` | Plain text sent by SMS when the RCS message can't be delivered |
+| `sender` | Overrides `defaultSender` for one send |
+| `message_ref` | Echoed in delivery webhooks |
+
+Things to get right:
+
+- **The sender is your RCS agent ID, not a phone number.** You create, test and launch the agent in the Kudosity app under **RCS → RCS Agents**. Until it's launched, it can message its test devices only. See [RCS onboarding](https://developers.kudosity.com/docs/rcs-onboarding).
+- **An SMS fallback needs a sender.** Kudosity doesn't send a fallback SMS without one, so set `defaultFallbackSender` to a number or sender ID that your account can send SMS from. If the model supplies a fallback message and no fallback sender is configured, the tool sends the RCS message without a fallback and returns a `warning`.
+- **A returned `id` means accepted, not delivered.** Delivery and read receipts arrive on the `RCS_STATUS` webhook. A message that falls back to SMS reports on `SMS_STATUS` with the same `id`. See [Track an RCS message that falls back to SMS](https://developers.kudosity.com/docs/rcs-sms-fallback).
+- **A tapped suggestion arrives as an `RCS_INBOUND` webhook event** with `mo.content_type` set to `SUGGESTION` and your `postback_data`. Route on `postback_data`, not on the label.
+- **Media URLs must be public `https` URLs that don't redirect.** Kudosity fetches each file when you send, and a file it can't fetch fails the request.
+
+The [RCS Message Guide](https://developers.kudosity.com/docs/rcs-message-guide) has the full rules for each format.
 
 ## Related
 

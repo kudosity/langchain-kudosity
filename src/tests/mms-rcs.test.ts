@@ -98,6 +98,70 @@ describe("KudositySendRcs", () => {
     expect(JSON.parse(call(fetch)[1].body)).not.toHaveProperty("sms_fallback");
   });
 
+  it("sends a rich card and returns the content type", async () => {
+    const fetch = mockFetch(200, {
+      data: { id: "rcs-3", content_type: "rich_card" },
+    });
+    const tool = new KudositySendRcs({ apiKey: "k", defaultSender: "Demo" });
+    const out = JSON.parse(
+      await tool.invoke({
+        recipient: "61438333061",
+        cards: [
+          {
+            title: "Your table is booked",
+            suggestions: [
+              { type: "open_url", text: "View", url: "https://example.com/b" },
+            ],
+          },
+        ],
+      })
+    );
+    expect(JSON.parse(call(fetch)[1].body)).toMatchObject({
+      content_type: "rich_card",
+      content: {
+        rich_card: {
+          standalone: {
+            card_content: {
+              title: "Your table is booked",
+              suggestions: [
+                {
+                  action: {
+                    text: "View",
+                    open_url_action: { url: "https://example.com/b" },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+    expect(out.content_type).toBe("rich_card");
+  });
+
+  it("sends without a fallback and warns when no fallback sender is configured", async () => {
+    const fetch = mockFetch(200, { data: { id: "rcs-4" } });
+    const tool = new KudositySendRcs({ apiKey: "k", defaultSender: "Demo" });
+    const out = JSON.parse(
+      await tool.invoke({
+        recipient: "61438333061",
+        message: "hi",
+        sms_fallback_message: "hi by SMS",
+      })
+    );
+    expect(JSON.parse(call(fetch)[1].body)).not.toHaveProperty("sms_fallback");
+    expect(out.id).toBe("rcs-4");
+    expect(out.warning).toMatch(/fallback was NOT included/);
+  });
+
+  it("returns a readable error without calling the API when the content is invalid", async () => {
+    const fetch = mockFetch(200, { data: { id: "x" } });
+    const tool = new KudositySendRcs({ apiKey: "k", defaultSender: "Demo" });
+    const out = JSON.parse(await tool.invoke({ recipient: "61438333061" }));
+    expect(fetch).not.toHaveBeenCalled();
+    expect(out.issues[0]).toMatch(/exactly one of/);
+  });
+
   it("asks for an RCS agent ID when no sender is configured", async () => {
     mockFetch(200, { data: { id: "x" } });
     const tool = new KudositySendRcs({ apiKey: "k" });
